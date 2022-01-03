@@ -153,15 +153,6 @@ class TracerSC(object):
         for device in self.devices:
             device.poll_device()
 
-    def publish_discovery_information(self, mqtt):
-        pass
-
-    def publish_values(self, mqtt):
-        pass
-
-    def read_value(self, value):
-        pass
-
 
 class TraneDevice(object):
     def __init__(self, sc, name, family, url):
