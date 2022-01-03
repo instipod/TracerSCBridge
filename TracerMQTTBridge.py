@@ -78,31 +78,32 @@ def poll(last_time):
                                                              generate_mqtt_compatible_name(point.get_point_name())),
                                         point.get_point_value())
 
-def publish_climate_set(climate_set):
+def publish_climate_set(climate_set, discovery=True):
     global mqtt_client, mqtt_base_topic
 
     sc_name = generate_mqtt_compatible_name(climate_set.get_device().get_sc().get_name())
     device_name = generate_mqtt_compatible_name(climate_set.get_device().get_device_name())
     topic = "{}/climate/{}/{}".format(mqtt_base_topic, sc_name, device_name)
 
-    discovery = {"action_topic": topic, "current_temperature_topic": topic, "action_template": "{{value_json.action}}",
-                 "current_temperature_template": "{{value_json.temp}}",
-                 "fan_mode_state_topic": topic, "fan_mode_state_template": "{{value_json.fan}}",
-                 "fan_modes": ["off", "on"], "initial": climate_set.get_temp_setpoint(),
-                 "mode_state_topic": topic, "mode_state_template": "{{value_json.mode}}",
-                 "modes": ["off", "heat", "cool"], "name": "{} ({})".format(climate_set.get_device().get_device_name(), climate_set.get_device().get_sc().get_name()), "precision": 0.1,
-                 "temperature_state_topic": topic, "temperature_state_template": "{{value_json.set}}",
-                 "temperature_unit": "F", "temp_step": 0.5,
-                 "unique_id": "{}_{}".format(sc_name, device_name),
+    if discovery:
+        discovery = {"action_topic": topic, "current_temperature_topic": topic, "action_template": "{{value_json.action}}",
+                     "current_temperature_template": "{{value_json.temp}}",
+                     "fan_mode_state_topic": topic, "fan_mode_state_template": "{{value_json.fan}}",
+                     "fan_modes": ["off", "on"], "initial": climate_set.get_temp_setpoint(),
+                     "mode_state_topic": topic, "mode_state_template": "{{value_json.mode}}",
+                     "modes": ["off", "heat", "cool"], "name": "{} ({})".format(climate_set.get_device().get_device_name(), climate_set.get_device().get_sc().get_name()), "precision": 0.1,
+                     "temperature_state_topic": topic, "temperature_state_template": "{{value_json.set}}",
+                     "temperature_unit": "F", "temp_step": 0.5,
+                     "unique_id": "{}_{}".format(sc_name, device_name),
 
-                 "fan_mode_command_topic": "tracer2mqtt/ignored", "mode_command_topic": "tracer2mqtt/ignored",
-                 "temperature_command_topic": "tracer2mqtt/ignored"}
-    discovery = json.dumps(discovery)
+                     "fan_mode_command_topic": "tracer2mqtt/ignored", "mode_command_topic": "tracer2mqtt/ignored",
+                     "temperature_command_topic": "tracer2mqtt/ignored"}
+        discovery = json.dumps(discovery)
 
-    mqtt_client.publish("homeassistant/climate/{}/{}_{}/config".format(sc_name, sc_name, device_name), discovery,
-                        retain=True)
+        mqtt_client.publish("homeassistant/climate/{}/{}_{}/config".format(sc_name, sc_name, device_name), discovery,
+                            retain=True)
 
-    time.sleep(1)
+        time.sleep(1)
 
     payload = {"action": climate_set.get_climate_run_mode(), "temp": climate_set.get_temp_active(), "fan": climate_set.get_fan_state(),
                "mode": climate_set.get_climate_set_mode(), "set": climate_set.get_temp_setpoint()}
@@ -193,6 +194,11 @@ def main():
     else:
         should_discover_spaces = config["bridge"]["discover_spaces"]
 
+    if "ha_discovery" not in config["bridge"].keys():
+        ha_discovery = True
+    else:
+        ha_discovery = config["bridge"]["ha_discovery"]
+
     if "log_level" in config["bridge"].keys():
         log_level_string = config["bridge"]["log_level"]
         if log_level_string == "DEBUG":
@@ -222,9 +228,8 @@ def main():
         #convert to objects when possible
         for sc in tracer_scs:
             for device in sc.get_devices():
-                climate_sets = get_trane_climate_sets(device)
-                for set in climate_sets:
-                    publish_climate_set(set)
+                for set in get_trane_climate_sets(device):
+                    publish_climate_set(set, ha_discovery)
 
         time.sleep(poll_interval)
 
