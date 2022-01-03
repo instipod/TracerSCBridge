@@ -1,3 +1,5 @@
 .idea
 venv
 test.py
+config.yaml
+config.yml

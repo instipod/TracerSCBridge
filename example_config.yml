@@ -1,0 +1,22 @@
+tracers:
+  - host: 192.168.0.2
+    name: Example SC Device
+    #Username and password is not required, but some data retrieval will fail without it
+    username: username
+    password: supersecret
+
+mqtt:
+  server: 192.168.0.3
+  port: 1883
+  #Username and password is not required, depends on your MQTT server authentication configuration
+  username: username
+  password: supersecret
+  client_id: tracer_bridge
+  base_topic: tracer2mqtt
+
+bridge:
+  discover_devices: true
+  discover_spaces: true
+  ha_discovery: true
+  log_level: INFO
+  poll_interval: 60

@@ -4,6 +4,7 @@ import time
 import requests
 import xml.etree.ElementTree as ET
 import logging
+from requests.auth import HTTPBasicAuth
 
 # points containing the text in valid_points will be included
 valid_points = ["communication", "humidity", "temp", "air", "pressure", "speed", "startstop", "capacity", "heatcoolmodestatus", "occupancy", "fan", "command"]
@@ -21,9 +22,13 @@ def is_valid_point_name(point):
     return False
 
 
-def make_xml_get_request(url):
+def make_xml_get_request(url, username=None, password=None):
     try:
-        request = requests.get(url, verify=False)
+        if username is not None and password is not None:
+            basic_auth = HTTPBasicAuth(username, password)
+            request = requests.get(url, verify=False, auth=basic_auth)
+        else:
+            request = requests.get(url, verify=False)
     except:
         logging.log(logging.WARNING, "Failed to execute a request to {}!".format(url))
         request = None
@@ -41,7 +46,7 @@ def make_xml_get_request(url):
 
 
 class TracerSC(object):
-    def __init__(self, name, hostname):
+    def __init__(self, name, hostname, username=None, password=None):
         self.name = name
         self.hostname = hostname
         self.devices = []
@@ -51,6 +56,8 @@ class TracerSC(object):
         self.device_mac = ""
         self.areas = []
         self.reachable = False
+        self.username = username
+        self.password = password
 
     def does_device_exist(self, url):
         return not (self.get_device_by_url(url) is None)
@@ -63,6 +70,9 @@ class TracerSC(object):
 
     def is_reachable(self):
         pass
+
+    def get_name(self):
+        return self.name
 
     def get_hostname(self):
         return self.hostname
@@ -81,10 +91,11 @@ class TracerSC(object):
         self.device_version = str(about_tree.find('./str[@name="productVersion"]').get("val"))
         self.device_name = str(about_tree.find('./str[@name="hardwareSerialNumber"]').get("val"))
 
-        ethernet_tree = make_xml_get_request("https://{}/evox/config/enet/link/eth0".format(self.hostname))
+        ethernet_tree = make_xml_get_request("https://{}/evox/config/enet/link/eth0".format(self.hostname), self.username, self.password)
         if ethernet_tree is None:
             logging.log(logging.WARNING,
-                        "Failed to read ethernet info on SC {} ({}):  device was not reachable!".format(self.name, self.hostname))
+                        "Failed to read ethernet info on SC {} ({}):  unable to get response!".format(self.name, self.hostname))
+            logging.log(logging.WARNING, "If you did not provide credentials in the configuration file, this warning is expected.")
             self.device_mac = "00:00:00:00:00:00"
         else:
             self.device_mac = str(ethernet_tree.find('./str[@name="macaddr"]').get("val"))
@@ -145,7 +156,7 @@ class TracerSC(object):
                 device_name = str(specific_equipment_request.find('./str[@name="name"]').get("val"))
                 device_family = "Space"
 
-                device_obj = TraneDevice(self, device_name, device_family, "https://{}/{}".format(self.hostname, equipment_url))
+                device_obj = TraneDevice(self, device_name, device_family, equipment_url)
                 self.devices.append(device_obj)
                 device_obj.discover_device()
 
