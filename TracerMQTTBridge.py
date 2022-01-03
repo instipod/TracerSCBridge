@@ -1,7 +1,7 @@
 #!python3
 
 from TracerSC import TracerSC
-from TraneDeviceTypeMapping import get_trane_device_type
+from TracerMQTTObjects import get_trane_climate_sets
 import yaml
 import time
 import paho.mqtt.client as MqttClient
@@ -9,6 +9,7 @@ import logging
 import urllib3
 from os.path import exists
 import os
+import json
 
 # Global variables
 mqtt_client = None
@@ -54,6 +55,10 @@ def generate_mqtt_compatible_name(name):
     name = name.lower()
     name = name.replace(" ", "_")
     name = name.replace("-", "_")
+    name = name.replace("(", "")
+    name = name.replace(")", "")
+    name = name.replace("/", "")
+    name = name.replace("\\", "")
     return name
 
 def poll(last_time):
@@ -67,11 +72,43 @@ def poll(last_time):
         for device in sc.get_devices():
             for point in device.get_points():
                 if point.get_point_last_updated() > last_time:
-                    mqtt_client.publish("{}/{}/{}/{}".format(mqtt_base_topic,
+                    mqtt_client.publish("{}/get/{}/{}/{}".format(mqtt_base_topic,
                                                              generate_mqtt_compatible_name(sc.get_name()),
                                                              generate_mqtt_compatible_name(device.get_device_name()),
                                                              generate_mqtt_compatible_name(point.get_point_name())),
                                         point.get_point_value())
+
+def publish_climate_set(climate_set):
+    global mqtt_client, mqtt_base_topic
+
+    sc_name = generate_mqtt_compatible_name(climate_set.get_device().get_sc().get_name())
+    device_name = generate_mqtt_compatible_name(climate_set.get_device().get_device_name())
+    topic = "{}/climate/{}/{}".format(mqtt_base_topic, sc_name, device_name)
+
+    discovery = {"action_topic": topic, "current_temperature_topic": topic, "action_template": "{{value_json.action}}",
+                 "current_temperature_template": "{{value_json.temp}}",
+                 "fan_mode_state_topic": topic, "fan_mode_state_template": "{{value_json.fan}}",
+                 "fan_modes": ["off", "on"], "initial": climate_set.get_temp_setpoint(),
+                 "mode_state_topic": topic, "mode_state_template": "{{value_json.mode}}",
+                 "modes": ["off", "heat", "cool"], "name": "{} ({})".format(climate_set.get_device().get_device_name(), climate_set.get_device().get_sc().get_name()), "precision": 0.1,
+                 "temperature_state_topic": topic, "temperature_state_template": "{{value_json.set}}",
+                 "temperature_unit": "F", "temp_step": 0.5,
+                 "unique_id": "{}_{}".format(sc_name, device_name),
+
+                 "fan_mode_command_topic": "tracer2mqtt/ignored", "mode_command_topic": "tracer2mqtt/ignored",
+                 "temperature_command_topic": "tracer2mqtt/ignored"}
+    discovery = json.dumps(discovery)
+
+    mqtt_client.publish("homeassistant/climate/{}/{}_{}/config".format(sc_name, sc_name, device_name), discovery,
+                        retain=True)
+
+    time.sleep(1)
+
+    payload = {"action": climate_set.get_climate_run_mode(), "temp": climate_set.get_temp_active(), "fan": climate_set.get_fan_state(),
+               "mode": climate_set.get_climate_set_mode(), "set": climate_set.get_temp_setpoint()}
+    payload = json.dumps(payload)
+
+    mqtt_client.publish(topic, payload)
 
 def main():
     global tracer_scs, mqtt_base_topic, mqtt_client
@@ -181,6 +218,14 @@ def main():
     while should_exit is False:
         poll(last_poll)
         last_poll = time.time()
+
+        #convert to objects when possible
+        for sc in tracer_scs:
+            for device in sc.get_devices():
+                climate_sets = get_trane_climate_sets(device)
+                for set in climate_sets:
+                    publish_climate_set(set)
+
         time.sleep(poll_interval)
 
     #Once we are ready to exit, stop MQTT

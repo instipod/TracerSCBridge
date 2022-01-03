@@ -134,7 +134,7 @@ class TracerSC(object):
                 self.devices.append(device_obj)
                 device_obj.discover_device()
 
-    def discover_spaces(self):
+    def discover_spaces(self, max=None):
         logging.log(logging.INFO, "Now attempting space discovery on {} ({}).".format(self.name, self.hostname))
 
         discovery_url = "https://{}/evox/equipment/spaces".format(self.hostname)
@@ -145,6 +145,7 @@ class TracerSC(object):
             logging.log(logging.WARNING, "Failed to discover devices on {} ({}):  device was not reachable!".format(self.name, self.hostname))
             return
 
+        count = 0
         for installed_device in installed_summary_tree.findall("ref"):
             try:
                 equipment_url = "https://{}{}".format(self.hostname, str(installed_device.get("href")))
@@ -159,6 +160,10 @@ class TracerSC(object):
                 device_obj = TraneDevice(self, device_name, device_family, equipment_url)
                 self.devices.append(device_obj)
                 device_obj.discover_device()
+
+            count = count + 1
+            if (max is not None and count >= max):
+                break
 
     def poll_devices(self):
         for device in self.devices:
@@ -176,6 +181,9 @@ class TraneDevice(object):
     def __repr__(self):
         return "TraneDevice({})".format(self.name)
 
+    def get_sc(self):
+        return self.sc
+
     def get_device_name(self):
         return self.name
 
@@ -187,6 +195,18 @@ class TraneDevice(object):
 
     def get_points(self):
         return self.points
+
+    def get_points_list(self):
+        points = []
+        for point in self.points:
+            points.append(point.get_point_name())
+        return points
+
+    def get_point(self, pointName):
+        for point in self.points:
+            if point.get_point_name() == pointName:
+                return point
+        return None
 
     def discover_device(self):
         logging.log(logging.INFO, "Now attempting discovery on {} ({})".format(self.name, self.url))
