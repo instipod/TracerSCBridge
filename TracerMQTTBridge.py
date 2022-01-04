@@ -211,6 +211,8 @@ def main():
             tracer_password = None
 
         tracer_obj = TracerSC(tracer["name"], tracer["host"], tracer_username, tracer_password)
+        if "devices" in tracer.keys():
+            tracer_obj.set_fixed_discovery(tracer["devices"])
         tracer_scs.append(tracer_obj)
 
     #load mqtt

@@ -4,11 +4,15 @@ tracers:
     #Username and password is not required, but some data retrieval will fail without it
     username: username
     password: supersecret
+    #Devices field not required, but will limit discovery to specific devices/areas
+    devices:
+      - "Example Area"
+      - "Example Device"
 
 mqtt:
   server: 192.168.0.3
   port: 1883
-  #Username and password is not required, depends on your MQTT server authentication configuration
+  #Username and password are not required, depends on your MQTT server authentication configuration
   username: username
   password: supersecret
   client_id: tracer_bridge

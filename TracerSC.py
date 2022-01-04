@@ -62,6 +62,7 @@ class TracerSC(object):
         self.reachable = False
         self.username = username
         self.password = password
+        self.fixed_discovery = []
 
     def does_device_exist(self, url):
         return not (self.get_device_by_url(url) is None)
@@ -98,6 +99,9 @@ class TracerSC(object):
 
     def get_password(self):
         return self.password
+
+    def set_fixed_discovery(self, names):
+        self.fixed_discovery = names
 
     def discover_sc(self):
         about_tree = make_xml_get_request("https://{}/evox/about".format(self.hostname))
@@ -149,6 +153,11 @@ class TracerSC(object):
                     #skip importing spaces as devices
                     continue
 
+                if len(self.fixed_discovery) > 0:
+                    if device_name not in self.fixed_discovery:
+                        #skip importing
+                        continue
+
                 device_obj = TraneDevice(self, device_name, device_family, "https://{}/{}".format(self.hostname, equipment_url))
                 self.devices.append(device_obj)
                 device_obj.discover_device()
@@ -175,6 +184,11 @@ class TracerSC(object):
                 specific_equipment_request = make_xml_get_request(equipment_url)
                 device_name = str(specific_equipment_request.find('./str[@name="name"]').get("val"))
                 device_family = "Space"
+
+                if len(self.fixed_discovery) > 0:
+                    if device_name not in self.fixed_discovery:
+                        #skip importing
+                        continue
 
                 device_obj = TraneDevice(self, device_name, device_family, equipment_url)
                 self.devices.append(device_obj)
