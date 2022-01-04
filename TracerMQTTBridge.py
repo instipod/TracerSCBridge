@@ -78,6 +78,26 @@ def poll(last_time):
                                                              generate_mqtt_compatible_name(point.get_point_name())),
                                         point.get_point_value())
 
+def get_sc_discovery_payload(sc):
+    direct_url = "https://{}".format(sc.get_hostname())
+
+    discovery = {"cu": direct_url, "ids": [sc.get_serial_number()], "cns": [["mac", sc.get_mac_address()]], "mf": "Trane",
+                 "mdl": "Tracer SC+", "name": sc.get_name(), "sw": sc.get_version()}
+
+    return discovery
+
+def get_device_discovery_payload(device):
+    sc = device.get_sc()
+
+    bare_equipment_url = device.get_device_url().replace("https://{}".format(sc.get_hostname()), "")
+    direct_url = "https://{}/hui/hui.html#app=spaces&view=STATUS&obj={}&tab=idStatusPanel".format(sc.get_hostname(), bare_equipment_url)
+
+    discovery = {"cu": direct_url, "ids": [device.get_id()], "mf": device.get_manufacturer(),
+                 "mdl": device.get_model(), "name": "{} on {}".format(device.get_device_name(), sc.get_name()),
+                 "sw": device.get_version(), "via_device": sc.get_serial_number()}
+
+    return discovery
+
 def publish_climate_set(climate_set, discovery=True):
     global mqtt_client, mqtt_base_topic
 
@@ -86,30 +106,58 @@ def publish_climate_set(climate_set, discovery=True):
     topic = "{}/climate/{}/{}".format(mqtt_base_topic, sc_name, device_name)
 
     if discovery:
-        discovery = {"action_topic": topic, "current_temperature_topic": topic, "action_template": "{{value_json.action}}",
-                     "current_temperature_template": "{{value_json.temp}}",
-                     "fan_mode_state_topic": topic, "fan_mode_state_template": "{{value_json.fan}}",
-                     "fan_modes": ["off", "on"], "initial": climate_set.get_temp_setpoint(),
-                     "mode_state_topic": topic, "mode_state_template": "{{value_json.mode}}",
-                     "modes": ["off", "heat", "cool"], "name": "{} ({})".format(climate_set.get_device().get_device_name(), climate_set.get_device().get_sc().get_name()), "precision": 0.1,
-                     "temperature_state_topic": topic, "temperature_state_template": "{{value_json.set}}",
-                     "temperature_unit": "F", "temp_step": 0.5,
-                     "unique_id": "{}_{}".format(sc_name, device_name),
+        discovery = {"dev": get_device_discovery_payload(climate_set.get_device()),
+                     "act_t": topic, "curr_temp_t": topic, "act_tpl": "{{value_json.action}}",
+                     "curr_temp_tpl": "{{value_json.temp}}",
+                     "fan_mode_stat_t": topic, "fan_mode_stat_tpl": "{{value_json.fan}}",
+                     "fan_modes": ["off", "on"], "init": climate_set.get_temp_setpoint(),
+                     "mode_stat_t": topic, "mode_stat_tpl": "{{value_json.mode}}",
+                     "modes": ["off", "heat", "cool"], "name": "{} ({})".format(climate_set.get_device().get_device_name(), climate_set.get_device().get_sc().get_name()),
+                     "precision": 0.1, "temp_stat_t": topic, "temp_stat_tpl": "{{value_json.set}}",
+                     "temp_step": 0.5, "uniq_id": "{}_{}".format(sc_name, device_name),
 
-                     "fan_mode_command_topic": "tracer2mqtt/ignored", "mode_command_topic": "tracer2mqtt/ignored",
-                     "temperature_command_topic": "tracer2mqtt/ignored"}
+                     "fan_mode_cmd_t": "tracer2mqtt/ignored", "mode_cmd_t": "tracer2mqtt/ignored",
+                     "temp_cmd_t": "tracer2mqtt/ignored"}
         discovery = json.dumps(discovery)
 
         mqtt_client.publish("homeassistant/climate/{}/{}_{}/config".format(sc_name, sc_name, device_name), discovery,
                             retain=True)
 
-        time.sleep(1)
+        time.sleep(0.5)
 
     payload = {"action": climate_set.get_climate_run_mode(), "temp": climate_set.get_temp_active(), "fan": climate_set.get_fan_state(),
                "mode": climate_set.get_climate_set_mode(), "set": climate_set.get_temp_setpoint()}
     payload = json.dumps(payload)
 
     mqtt_client.publish(topic, payload)
+
+def publish_device_communication_status(device):
+    if device.get_point("CommunicationStatus") is not None:
+        sc = device.get_sc()
+        sc_name = generate_mqtt_compatible_name(sc.get_name())
+        device_name = generate_mqtt_compatible_name(device.get_device_name())
+        topic = "{}/get/{}/{}/communicationstatus".format(mqtt_base_topic, sc_name, device_name)
+
+        discovery = {"dev": get_sc_discovery_payload(sc), "dev_cla": "connectivity", "entity_category": "diagnostic",
+                     "name": "{} Comm Status".format(device.get_device_name()), "uniq_id": "{}_{}_comm".format(sc_name, device_name),
+                     "stat_t": topic, "pl_on": "True", "pl_off": "False"}
+        discovery = json.dumps(discovery)
+        mqtt_client.publish("homeassistant/binary_sensor/{}/{}_{}_comm/config".format(sc_name, sc_name, device_name), discovery,
+                            retain=True)
+
+def publish_device_occupancy_status(device):
+    if device.get_point("OccupancyStatus") is not None:
+        sc = device.get_sc()
+        sc_name = generate_mqtt_compatible_name(sc.get_name())
+        device_name = generate_mqtt_compatible_name(device.get_device_name())
+        topic = "{}/get/{}/{}/occupancystatus".format(mqtt_base_topic, sc_name, device_name)
+
+        discovery = {"dev": get_device_discovery_payload(device), "dev_cla": "occupancy",
+                     "name": "{} Occupancy".format(device.get_device_name()), "uniq_id": "{}_{}_occ".format(sc_name, device_name),
+                     "stat_t": topic, "pl_on": "True", "pl_off": "False"}
+        discovery = json.dumps(discovery)
+        mqtt_client.publish("homeassistant/binary_sensor/{}/{}_{}_occ/config".format(sc_name, sc_name, device_name), discovery,
+                            retain=True)
 
 def main():
     global tracer_scs, mqtt_base_topic, mqtt_client
@@ -214,6 +262,7 @@ def main():
 
     #Discover points on the SCs
     for sc in tracer_scs:
+        sc.discover_sc()
         if should_discover_devices:
             sc.discover_devices()
         if should_discover_spaces:
@@ -223,7 +272,15 @@ def main():
     last_poll = 0
     while should_exit is False:
         poll(last_poll)
-        last_poll = time.time()
+
+        #discover some compatible sensors
+        if ha_discovery and last_poll == 0:
+            for sc in tracer_scs:
+                for device in sc.get_devices():
+                    logging.log(logging.INFO, "Discovering Communication Status sensors on {} ({})...".format(device.get_device_name(), sc.get_name()))
+                    publish_device_communication_status(device)
+                    logging.log(logging.INFO, "Discovering Occupancy Status sensors on {} ({})...".format(device.get_device_name(), sc.get_name()))
+                    publish_device_occupancy_status(device)
 
         #convert to objects when possible
         for sc in tracer_scs:
@@ -231,6 +288,7 @@ def main():
                 for set in get_trane_climate_sets(device):
                     publish_climate_set(set, ha_discovery)
 
+        last_poll = time.time()
         time.sleep(poll_interval)
 
     #Once we are ready to exit, stop MQTT

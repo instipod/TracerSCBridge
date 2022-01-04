@@ -4,7 +4,8 @@ import time
 import requests
 import xml.etree.ElementTree as ET
 import logging
-from requests.auth import HTTPBasicAuth
+from requests.auth import HTTPDigestAuth
+import hashlib
 
 # points containing the text in valid_points will be included
 valid_points = ["communication", "humidity", "temp", "air", "pressure", "speed", "startstop", "capacity", "heatcoolmodestatus", "occupancy", "fan", "command"]
@@ -25,8 +26,8 @@ def is_valid_point_name(point):
 def make_xml_get_request(url, username=None, password=None):
     try:
         if username is not None and password is not None:
-            basic_auth = HTTPBasicAuth(username, password)
-            request = requests.get(url, verify=False, auth=basic_auth)
+            auth = HTTPDigestAuth(username, password)
+            request = requests.get(url, verify=False, auth=auth)
         else:
             request = requests.get(url, verify=False)
     except:
@@ -34,7 +35,10 @@ def make_xml_get_request(url, username=None, password=None):
         request = None
 
     if request is None or request.status_code != 200:
-        logging.log(logging.WARNING, "Request to {} did not return success!".format(url))
+        if request.status_code == 401 or request.status_code == 403:
+            logging.log(logging.WARNING, "Request to {} returned unauthorized!".format(url))
+        else:
+            logging.log(logging.WARNING, "Request to {} did not return success!".format(url))
         return None
 
     try:
@@ -69,16 +73,31 @@ class TracerSC(object):
         return None
 
     def is_reachable(self):
-        pass
+        return self.reachable
 
     def get_name(self):
         return self.name
+
+    def get_version(self):
+        return self.device_version
+
+    def get_serial_number(self):
+        return self.device_serial
+
+    def get_mac_address(self):
+        return self.device_mac
 
     def get_hostname(self):
         return self.hostname
 
     def get_devices(self):
         return self.devices
+
+    def get_username(self):
+        return self.username
+
+    def get_password(self):
+        return self.password
 
     def discover_sc(self):
         about_tree = make_xml_get_request("https://{}/evox/about".format(self.hostname))
@@ -89,7 +108,7 @@ class TracerSC(object):
 
         self.device_name = str(about_tree.find('./str[@name="serverName"]').get("val"))
         self.device_version = str(about_tree.find('./str[@name="productVersion"]').get("val"))
-        self.device_name = str(about_tree.find('./str[@name="hardwareSerialNumber"]').get("val"))
+        self.device_serial = str(about_tree.find('./str[@name="hardwareSerialNumber"]').get("val"))
 
         ethernet_tree = make_xml_get_request("https://{}/evox/config/enet/link/eth0".format(self.hostname), self.username, self.password)
         if ethernet_tree is None:
@@ -177,6 +196,9 @@ class TraneDevice(object):
         self.family = family
         self.url = url
         self.points = []
+        self.make = "Trane"
+        self.model = "Unknown Model"
+        self.version = "1.0"
 
     def __repr__(self):
         return "TraneDevice({})".format(self.name)
@@ -195,6 +217,18 @@ class TraneDevice(object):
 
     def get_points(self):
         return self.points
+
+    def get_model(self):
+        return self.model
+
+    def get_manufacturer(self):
+        return self.make
+
+    def get_version(self):
+        return self.version
+
+    def get_id(self):
+        return hashlib.md5(self.get_device_url().encode("utf-8")).hexdigest()
 
     def get_points_list(self):
         points = []
@@ -220,6 +254,27 @@ class TraneDevice(object):
         for attribute in attributes_tree.findall("obj"):
             attribute_name = str(attribute.find('./str[@name="key"]').get("val"))
             attribute_url = str(attribute.find('./ref[@name="attributeReference"]').get("href"))
+
+            if attribute_name == "ModelName":
+                try:
+                    model_tree = make_xml_get_request("https://{}{}".format(self.sc.get_hostname(), attribute_url), username=self.get_sc().get_username(), password=self.get_sc().get_password())
+                    self.model = model_tree.getroot().get("val")
+                except:
+                    pass
+
+            if attribute_name == "VendorName":
+                try:
+                    vendor_tree = make_xml_get_request("https://{}{}".format(self.sc.get_hostname(), attribute_url), username=self.get_sc().get_username(), password=self.get_sc().get_password())
+                    self.make = vendor_tree.getroot().get("val")
+                except:
+                    pass
+
+            if attribute_name == "FirmwareRevision":
+                try:
+                    vendor_tree = make_xml_get_request("https://{}{}".format(self.sc.get_hostname(), attribute_url), username=self.get_sc().get_username(), password=self.get_sc().get_password())
+                    self.version = vendor_tree.getroot().get("val")
+                except:
+                    pass
 
             if not is_valid_point_name(attribute_name):
                 logging.log(logging.DEBUG, "Skipping ignored point name {}.".format(attribute_name))
