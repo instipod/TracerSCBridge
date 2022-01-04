@@ -8,7 +8,51 @@ from requests.auth import HTTPDigestAuth
 import hashlib
 
 # points containing the text in valid_points will be included
-valid_points = ["communication", "humidity", "temp", "air", "pressure", "speed", "startstop", "capacity", "heatcoolmodestatus", "occupancy", "fan", "command"]
+#valid_points = ["communication", "humidity", "temp", "air", "pressure", "speed", "startstop", "capacity", "heatcoolmodestatus", "occupancy", "fan", "command"]
+valid_points = [
+"CommunicationStatus",
+"OccupancyStatus",
+"DischargeAirTemp",
+"SpaceTempActive",
+"SpaceRelHumidityActive",
+"SpaceRelHumidityLocal",
+"OutdoorAirTempBAS",
+"OutdoorAirTempLocal",
+"OutdoorAirTempActive",
+"OutdoorAirRelHumidityLocal",
+"OutdoorAirRelHumidityActive",
+"OutdoorAirRelHumidityBAS",
+"OutdoorAirRHActive",
+"CoolingCapacityStatus",
+"HeatingCapacityPrimary",
+"SupplyFanSpeed",
+"HeatCoolModeStatus",
+"HeatCoolModeRequest",
+"SpaceTempSetpointActive",
+"SpaceTempUnoccCoolSpt",
+"SpaceTempUnoccHeatSpt",
+"SpaceTempOccCoolSptBAS",
+"SpaceTempOccHeatSptBAS",
+"SpaceTempSptBAS",
+"BuildingStaticPres",
+"DuctStaticPressureActive",
+"DuctStaticPressureLocal",
+"DischargeAirTempSptBAS",
+"SupplyAirTempLocal",
+"DuctStaticPressureActive",
+"DuctStaticPressureSptBAS",
+"HeatCoolModeRequest",
+"ReturnAirTemperature",
+"ReturnFanSpeed",
+"ActiveHeatCoolStptTemp",
+"ChilledWaterStpt",
+"ChillerRunningState",
+"OperatingMode",
+"RunningMode",
+"DehumidificationStatus",
+"ExhaustFanSpeed",
+"ReturnAirTemperature"
+]
 # points with an exact (case sensitive) name match will be excluded
 invalid_points = ["LowTemperatureAlarm", "DiagOutdoorAirTempSourceFailure", "DiagSpaceTempSourceFailure", "SupplyFanFailureReset", "SupplyFanFailure"]
 
@@ -18,7 +62,7 @@ def is_valid_point_name(point):
         if invalid_point == point:
             return False
     for valid_point in valid_points:
-        if valid_point in point.lower():
+        if valid_point in point.lower() or valid_point == point:
             return True
     return False
 
@@ -327,6 +371,8 @@ class TranePoint(object):
         return self.url
 
     def get_point_value(self):
+        if self.type == "float":
+            return str(self.get_point_valid_value())
         return self.value
 
     def get_point_type(self):
@@ -342,7 +388,7 @@ class TranePoint(object):
         if self.type == "int":
             return int(self.get_point_value())
         elif self.type == "float":
-            return float(self.get_point_value())
+            return round(float(self.value), 2)
         elif self.type == "bool":
             return bool(self.get_point_value())
         else:

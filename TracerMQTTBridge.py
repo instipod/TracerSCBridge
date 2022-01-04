@@ -1,7 +1,9 @@
 #!python3
 
 from TracerSC import TracerSC
-from TracerMQTTObjects import get_trane_climate_sets
+from TracerMQTTObjects import get_trane_climate_sets, \
+    discover_sensors, generate_mqtt_compatible_name, \
+    get_device_discovery_payload
 import yaml
 import time
 import paho.mqtt.client as MqttClient
@@ -51,17 +53,7 @@ def connect_mqtt(mqtt_server, mqtt_port, mqtt_client_id, mqtt_username=None, mqt
     else:
         return False
 
-def generate_mqtt_compatible_name(name):
-    name = name.lower()
-    name = name.replace(" ", "_")
-    name = name.replace("-", "_")
-    name = name.replace("(", "")
-    name = name.replace(")", "")
-    name = name.replace("/", "")
-    name = name.replace("\\", "")
-    return name
-
-def poll(last_time):
+def poll(last_time, retain=False):
     global mqtt_client, tracer_scs
 
     for sc in tracer_scs:
@@ -76,27 +68,7 @@ def poll(last_time):
                                                              generate_mqtt_compatible_name(sc.get_name()),
                                                              generate_mqtt_compatible_name(device.get_device_name()),
                                                              generate_mqtt_compatible_name(point.get_point_name())),
-                                        point.get_point_value())
-
-def get_sc_discovery_payload(sc):
-    direct_url = "https://{}".format(sc.get_hostname())
-
-    discovery = {"cu": direct_url, "ids": [sc.get_serial_number()], "cns": [["mac", sc.get_mac_address()]], "mf": "Trane",
-                 "mdl": "Tracer SC+", "name": sc.get_name(), "sw": sc.get_version()}
-
-    return discovery
-
-def get_device_discovery_payload(device):
-    sc = device.get_sc()
-
-    bare_equipment_url = device.get_device_url().replace("https://{}".format(sc.get_hostname()), "")
-    direct_url = "https://{}/hui/hui.html#app=spaces&view=STATUS&obj={}&tab=idStatusPanel".format(sc.get_hostname(), bare_equipment_url)
-
-    discovery = {"cu": direct_url, "ids": [device.get_id()], "mf": device.get_manufacturer(),
-                 "mdl": device.get_model(), "name": "{} on {}".format(device.get_device_name(), sc.get_name()),
-                 "sw": device.get_version(), "via_device": sc.get_serial_number()}
-
-    return discovery
+                                        point.get_point_value(), retain=retain)
 
 def publish_climate_set(climate_set, discovery=True):
     global mqtt_client, mqtt_base_topic
@@ -130,34 +102,6 @@ def publish_climate_set(climate_set, discovery=True):
     payload = json.dumps(payload)
 
     mqtt_client.publish(topic, payload)
-
-def publish_device_communication_status(device):
-    if device.get_point("CommunicationStatus") is not None:
-        sc = device.get_sc()
-        sc_name = generate_mqtt_compatible_name(sc.get_name())
-        device_name = generate_mqtt_compatible_name(device.get_device_name())
-        topic = "{}/get/{}/{}/communicationstatus".format(mqtt_base_topic, sc_name, device_name)
-
-        discovery = {"dev": get_sc_discovery_payload(sc), "dev_cla": "connectivity", "entity_category": "diagnostic",
-                     "name": "{} Comm Status".format(device.get_device_name()), "uniq_id": "{}_{}_comm".format(sc_name, device_name),
-                     "stat_t": topic, "pl_on": "True", "pl_off": "False"}
-        discovery = json.dumps(discovery)
-        mqtt_client.publish("homeassistant/binary_sensor/{}/{}_{}_comm/config".format(sc_name, sc_name, device_name), discovery,
-                            retain=True)
-
-def publish_device_occupancy_status(device):
-    if device.get_point("OccupancyStatus") is not None:
-        sc = device.get_sc()
-        sc_name = generate_mqtt_compatible_name(sc.get_name())
-        device_name = generate_mqtt_compatible_name(device.get_device_name())
-        topic = "{}/get/{}/{}/occupancystatus".format(mqtt_base_topic, sc_name, device_name)
-
-        discovery = {"dev": get_device_discovery_payload(device), "dev_cla": "occupancy",
-                     "name": "{} Occupancy".format(device.get_device_name()), "uniq_id": "{}_{}_occ".format(sc_name, device_name),
-                     "stat_t": topic, "pl_on": "True", "pl_off": "False"}
-        discovery = json.dumps(discovery)
-        mqtt_client.publish("homeassistant/binary_sensor/{}/{}_{}_occ/config".format(sc_name, sc_name, device_name), discovery,
-                            retain=True)
 
 def main():
     global tracer_scs, mqtt_base_topic, mqtt_client
@@ -231,6 +175,11 @@ def main():
     else:
         mqtt_password = None
 
+    if "retain" in config["mqtt"].keys():
+        retain_values = config["mqtt"]["retain"]
+    else:
+        retain_values = False
+
     mqtt_base_topic = config["mqtt"]["base_topic"]
     connect_mqtt(config["mqtt"]["server"], config["mqtt"]["port"], config["mqtt"]["client_id"], mqtt_username, mqtt_password)
 
@@ -273,16 +222,13 @@ def main():
     #Start polling
     last_poll = 0
     while should_exit is False:
-        poll(last_poll)
+        poll(last_poll, retain_values)
 
         #discover some compatible sensors
         if ha_discovery and last_poll == 0:
             for sc in tracer_scs:
                 for device in sc.get_devices():
-                    logging.log(logging.INFO, "Discovering Communication Status sensors on {} ({})...".format(device.get_device_name(), sc.get_name()))
-                    publish_device_communication_status(device)
-                    logging.log(logging.INFO, "Discovering Occupancy Status sensors on {} ({})...".format(device.get_device_name(), sc.get_name()))
-                    publish_device_occupancy_status(device)
+                    discover_sensors(mqtt_client, mqtt_base_topic, device)
 
         #convert to objects when possible
         for sc in tracer_scs:

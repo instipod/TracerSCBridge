@@ -17,6 +17,7 @@ mqtt:
   password: supersecret
   client_id: tracer_bridge
   base_topic: tracer2mqtt
+  retain: true
 
 bridge:
   discover_devices: true
